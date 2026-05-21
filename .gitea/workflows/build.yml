@@ -20,8 +20,8 @@ jobs:
           git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
           git -c http.extraheader="AUTHORIZATION: token ${{ github.token }}" fetch --depth=1 origin "$GITHUB_SHA"
           git checkout --force FETCH_HEAD
-          git submodule sync --recursive
-          git submodule update --init --recursive
+          git submodule sync -- MMKV
+          git submodule update --init MMKV
 
       - name: Tool versions
         run: |
@@ -54,29 +54,29 @@ jobs:
     runs-on: windows
     steps:
       - name: Checkout
-        shell: pwsh
+        shell: powershell
         run: |
           git init .
           git remote add origin "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY.git"
           git -c http.extraheader="AUTHORIZATION: token ${{ github.token }}" fetch --depth=1 origin "$env:GITHUB_SHA"
           git checkout --force FETCH_HEAD
-          git submodule sync --recursive
-          git submodule update --init --recursive
+          git submodule sync -- MMKV
+          git submodule update --init MMKV
 
       - name: Tool versions
-        shell: pwsh
+        shell: powershell
         run: |
           cmake --version
           conan --version
 
       - name: Configure Conan profile
-        shell: pwsh
+        shell: powershell
         run: |
           $env:CONAN_HOME = Join-Path (Get-Location) ".conan2"
           conan profile detect --force
 
       - name: CMake smoke tests
-        shell: pwsh
+        shell: powershell
         run: |
           $env:CONAN_HOME = Join-Path (Get-Location) ".conan2"
           if (Test-Path build) {
@@ -91,7 +91,7 @@ jobs:
           ctest --test-dir build -C Release --output-on-failure
 
       - name: Conan create
-        shell: pwsh
+        shell: powershell
         run: |
           $env:CONAN_HOME = Join-Path (Get-Location) ".conan2"
           conan create . --build=missing -s build_type=Release
