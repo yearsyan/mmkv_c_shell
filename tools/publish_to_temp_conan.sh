@@ -5,7 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 remote_name="${CONAN_REMOTE_NAME:-temp-conan}"
-remote_url="${CONAN_REMOTE_URL:-http://192.168.9.138:9300}"
+remote_url="${CONAN_REMOTE_URL:-http://127.0.0.1:9300}"
 reference="${MMKV_C_REFERENCE:-mmkv_c/2.4.0}"
 
 export CONAN_HOME="${CONAN_HOME:-$repo_root/.conan2-temp}"

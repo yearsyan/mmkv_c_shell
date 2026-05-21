@@ -2,12 +2,8 @@ name: Build mmkv_c
 
 on:
   push:
-    branches:
-      - main
     tags:
-      - "v*"
-  pull_request:
-  workflow_dispatch:
+      - "v**"
 
 jobs:
   linux:
@@ -60,13 +56,15 @@ jobs:
           conan create . --build=missing -s build_type=Release -nr
 
       - name: Upload Conan package
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           CONAN_REMOTE_NAME: private
           CONAN_REMOTE_URL: ${{ secrets.CONAN_REMOTE_URL }}
           CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
           CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+          CONAN_HTTPS_PROXY_URL: ${{ secrets.CONAN_HTTPS_PROXY_URL }}
+          CONAN_HTTPS_PROXY_USERNAME: ${{ secrets.CONAN_HTTPS_PROXY_USERNAME }}
+          CONAN_HTTPS_PROXY_PASSWORD: ${{ secrets.CONAN_HTTPS_PROXY_PASSWORD }}
           MMKV_C_REFERENCE: mmkv_c/2.4.0
         run: |
           set -euo pipefail
@@ -76,6 +74,9 @@ jobs:
           remote_url="${CONAN_REMOTE_URL:-}"
           username="${CONAN_USERNAME:-}"
           password="${CONAN_PASSWORD:-}"
+          proxy_url="${CONAN_HTTPS_PROXY_URL:-}"
+          proxy_username="${CONAN_HTTPS_PROXY_USERNAME:-}"
+          proxy_password="${CONAN_HTTPS_PROXY_PASSWORD:-}"
 
           if [ -z "$remote_url" ]; then
             echo "CONAN_REMOTE_URL secret is required for Conan upload" >&2
@@ -85,6 +86,32 @@ jobs:
             echo "CONAN_USERNAME and CONAN_PASSWORD secrets are required for Conan upload" >&2
             exit 1
           fi
+          if [ -z "$proxy_url" ] || [ -z "$proxy_username" ] || [ -z "$proxy_password" ]; then
+            echo "CONAN_HTTPS_PROXY_URL, CONAN_HTTPS_PROXY_USERNAME, and CONAN_HTTPS_PROXY_PASSWORD secrets are required for Conan upload" >&2
+            exit 1
+          fi
+
+          proxy_with_auth="$(python - <<'PY'
+          import os
+          from urllib.parse import quote, urlsplit, urlunsplit
+
+          proxy_url = os.environ["CONAN_HTTPS_PROXY_URL"]
+          username = quote(os.environ["CONAN_HTTPS_PROXY_USERNAME"], safe="")
+          password = quote(os.environ["CONAN_HTTPS_PROXY_PASSWORD"], safe="")
+          parts = urlsplit(proxy_url)
+          if not parts.scheme or not parts.hostname:
+              raise SystemExit("CONAN_HTTPS_PROXY_URL must include scheme and host")
+          host = parts.hostname
+          if ":" in host and not host.startswith("["):
+              host = f"[{host}]"
+          port = f":{parts.port}" if parts.port else ""
+          netloc = f"{username}:{password}@{host}{port}"
+          print(urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment)))
+          PY
+          )"
+          echo "::add-mask::$proxy_with_auth"
+          export HTTPS_PROXY="$proxy_with_auth"
+          export https_proxy="$proxy_with_auth"
 
           conan remote add "$remote_name" "$remote_url" -f
           conan remote login "$remote_name" "$username" -p "$password"
@@ -140,13 +167,15 @@ jobs:
           conan create . --build=missing -s build_type=Release -nr
 
       - name: Upload Conan package
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           CONAN_REMOTE_NAME: private
           CONAN_REMOTE_URL: ${{ secrets.CONAN_REMOTE_URL }}
           CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
           CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+          CONAN_HTTPS_PROXY_URL: ${{ secrets.CONAN_HTTPS_PROXY_URL }}
+          CONAN_HTTPS_PROXY_USERNAME: ${{ secrets.CONAN_HTTPS_PROXY_USERNAME }}
+          CONAN_HTTPS_PROXY_PASSWORD: ${{ secrets.CONAN_HTTPS_PROXY_PASSWORD }}
           MMKV_C_REFERENCE: mmkv_c/2.4.0
         run: |
           $ErrorActionPreference = "Stop"
@@ -156,6 +185,9 @@ jobs:
           $remoteUrl = $env:CONAN_REMOTE_URL
           $username = $env:CONAN_USERNAME
           $password = $env:CONAN_PASSWORD
+          $proxyUrl = $env:CONAN_HTTPS_PROXY_URL
+          $proxyUsername = $env:CONAN_HTTPS_PROXY_USERNAME
+          $proxyPassword = $env:CONAN_HTTPS_PROXY_PASSWORD
 
           if (-not $remoteUrl) {
             throw "CONAN_REMOTE_URL secret is required for Conan upload"
@@ -163,6 +195,29 @@ jobs:
           if (-not $username -or -not $password) {
             throw "CONAN_USERNAME and CONAN_PASSWORD secrets are required for Conan upload"
           }
+          if (-not $proxyUrl -or -not $proxyUsername -or -not $proxyPassword) {
+            throw "CONAN_HTTPS_PROXY_URL, CONAN_HTTPS_PROXY_USERNAME, and CONAN_HTTPS_PROXY_PASSWORD secrets are required for Conan upload"
+          }
+
+          $proxyUri = [System.Uri]$proxyUrl
+          if (-not $proxyUri.Scheme -or -not $proxyUri.Host) {
+            throw "CONAN_HTTPS_PROXY_URL must include scheme and host"
+          }
+          $proxyHost = $proxyUri.Host
+          if ($proxyHost.Contains(":") -and -not $proxyHost.StartsWith("[")) {
+            $proxyHost = "[$proxyHost]"
+          }
+          $proxyPort = if ($proxyUri.IsDefaultPort) { "" } else { ":$($proxyUri.Port)" }
+          $proxyWithAuth = "{0}://{1}:{2}@{3}{4}{5}" -f `
+            $proxyUri.Scheme, `
+            [System.Uri]::EscapeDataString($proxyUsername), `
+            [System.Uri]::EscapeDataString($proxyPassword), `
+            $proxyHost, `
+            $proxyPort, `
+            $proxyUri.PathAndQuery
+          Write-Output "::add-mask::$proxyWithAuth"
+          $env:HTTPS_PROXY = $proxyWithAuth
+          $env:https_proxy = $proxyWithAuth
 
           conan remote add $remoteName $remoteUrl -f
           conan remote login $remoteName $username -p $password

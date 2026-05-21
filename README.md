@@ -60,13 +60,13 @@ python3 tools/conan_test_server.py \
 Publish this package from the checkout:
 
 ```bash
-CONAN_REMOTE_URL=http://192.168.9.138:9300 tools/publish_to_temp_conan.sh
+CONAN_REMOTE_URL=http://127.0.0.1:9300 tools/publish_to_temp_conan.sh
 ```
 
 Manual equivalent:
 
 ```bash
-conan remote add temp-conan http://192.168.9.138:9300 -f
+conan remote add temp-conan http://127.0.0.1:9300 -f
 conan create . --build=missing -s build_type=Release -nr
 conan upload "mmkv_c/2.4.0:*" -r temp-conan --check -c
 ```
@@ -96,16 +96,20 @@ conan remote login private <user> -p <password-or-token>
 conan upload "mmkv_c/2.4.0:*" -r private --check -c
 ```
 
-The Gitea and GitHub workflows build on every push and pull request. Upload is
-intentionally gated: it runs only for `workflow_dispatch` or `v*` tags. Uploads
-require these repository secrets:
+CI builds run on regular validation events without uploading packages. Publishing
+runs only for `v**` tag pushes and uploads through an HTTPS proxy. Package
+uploads require these repository secrets:
 
 - `CONAN_REMOTE_URL`: private Conan remote URL, for example your internal
   `https://...` endpoint.
 - `CONAN_USERNAME`: Conan username or service account.
 - `CONAN_PASSWORD`: Conan password or personal access token.
+- `CONAN_HTTPS_PROXY_URL`: HTTPS proxy URL, including scheme and host.
+- `CONAN_HTTPS_PROXY_USERNAME`: HTTPS proxy username.
+- `CONAN_HTTPS_PROXY_PASSWORD`: HTTPS proxy password.
 
-The private remote URL is intentionally not hard-coded in either workflow.
+The private remote URL and proxy credentials are intentionally not hard-coded in
+either workflow.
 
 For the Godot/SCons engine module, the current integration pattern is:
 
