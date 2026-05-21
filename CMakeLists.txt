@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(mmkv_c
-    VERSION 2.4.0
+    VERSION 2.4.1
     DESCRIPTION "Static C facade for Tencent MMKV"
     LANGUAGES C CXX ASM)
 

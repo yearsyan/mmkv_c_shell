@@ -68,7 +68,7 @@ Manual equivalent:
 ```bash
 conan remote add temp-conan http://127.0.0.1:9300 -f
 conan create . --build=missing -s build_type=Release -nr
-conan upload "mmkv_c/2.4.0:*" -r temp-conan --check -c
+conan upload "mmkv_c/2.4.1:*" -r temp-conan --check -c
 ```
 
 Optional auth:
@@ -93,7 +93,7 @@ Private Conan remote example:
 ```bash
 conan remote add private https://conan.example.internal -f
 conan remote login private <user> -p <password-or-token>
-conan upload "mmkv_c/2.4.0:*" -r private --check -c
+conan upload "mmkv_c/2.4.1:*" -r private --check -c
 ```
 
 CI builds run on regular validation events without uploading packages. Publishing

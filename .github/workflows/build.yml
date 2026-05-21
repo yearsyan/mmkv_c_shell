@@ -7,7 +7,7 @@ on:
 
 env:
   CONAN_REMOTE_NAME: private
-  MMKV_C_REFERENCE: mmkv_c/2.4.0
+  MMKV_C_REFERENCE: mmkv_c/2.4.1
 
 jobs:
   linux:

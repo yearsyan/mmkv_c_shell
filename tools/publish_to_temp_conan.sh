@@ -6,7 +6,7 @@ cd "$repo_root"
 
 remote_name="${CONAN_REMOTE_NAME:-temp-conan}"
 remote_url="${CONAN_REMOTE_URL:-http://127.0.0.1:9300}"
-reference="${MMKV_C_REFERENCE:-mmkv_c/2.4.0}"
+reference="${MMKV_C_REFERENCE:-mmkv_c/2.4.1}"
 
 export CONAN_HOME="${CONAN_HOME:-$repo_root/.conan2-temp}"
 

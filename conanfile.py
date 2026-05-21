@@ -7,7 +7,7 @@ from conan.tools.files import copy
 
 class MmkvCConan(ConanFile):
     name = "mmkv_c"
-    version = "2.4.0"
+    version = "2.4.1"
     license = "BSD-3-Clause"
     description = "Static C facade package for Tencent MMKV"
     topics = ("mmkv", "key-value", "static-library", "c-api")
