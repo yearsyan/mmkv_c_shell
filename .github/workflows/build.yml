@@ -5,11 +5,21 @@ on:
     tags:
       - "v**"
 
+env:
+  CONAN_REMOTE_NAME: private
+  MMKV_C_REFERENCE: mmkv_c/2.4.0
+
 jobs:
   linux:
     name: Linux static package
     runs-on: ubuntu-latest
     steps:
+      - name: Configure Git line endings
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -58,69 +68,278 @@ jobs:
       - name: Upload Conan package
         shell: bash
         env:
-          CONAN_REMOTE_NAME: private
           CONAN_REMOTE_URL: ${{ secrets.CONAN_REMOTE_URL }}
           CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
           CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
           CONAN_HTTPS_PROXY_URL: ${{ secrets.CONAN_HTTPS_PROXY_URL }}
           CONAN_HTTPS_PROXY_USERNAME: ${{ secrets.CONAN_HTTPS_PROXY_USERNAME }}
           CONAN_HTTPS_PROXY_PASSWORD: ${{ secrets.CONAN_HTTPS_PROXY_PASSWORD }}
-          MMKV_C_REFERENCE: mmkv_c/2.4.0
         run: |
           set -euo pipefail
           export CONAN_HOME="$PWD/.conan2"
+          bash tools/ci_upload_conan.sh
 
-          remote_name="${CONAN_REMOTE_NAME:-private}"
-          remote_url="${CONAN_REMOTE_URL:-}"
-          username="${CONAN_USERNAME:-}"
-          password="${CONAN_PASSWORD:-}"
-          proxy_url="${CONAN_HTTPS_PROXY_URL:-}"
-          proxy_username="${CONAN_HTTPS_PROXY_USERNAME:-}"
-          proxy_password="${CONAN_HTTPS_PROXY_PASSWORD:-}"
+  android:
+    name: Android arm64 static package
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_NDK_VERSION: "28.1.13356709"
+    steps:
+      - name: Configure Git line endings
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
 
-          if [ -z "$remote_url" ]; then
-            echo "CONAN_REMOTE_URL secret is required for Conan upload" >&2
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip conan cmake
+          cmake --version
+          conan --version
+
+      - name: Prepare Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          android_home="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          if [ ! -d "$android_home" ]; then
+            echo "Android SDK is required on the Linux runner" >&2
             exit 1
           fi
-          if [ -z "$username" ] || [ -z "$password" ]; then
-            echo "CONAN_USERNAME and CONAN_PASSWORD secrets are required for Conan upload" >&2
+
+          sdkmanager="$android_home/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$sdkmanager" ]; then
+            sdkmanager="$(command -v sdkmanager || true)"
+          fi
+          if [ -z "$sdkmanager" ] || [ ! -x "$sdkmanager" ]; then
+            echo "sdkmanager is required to prepare the Android NDK" >&2
             exit 1
           fi
-          if [ -z "$proxy_url" ] || [ -z "$proxy_username" ] || [ -z "$proxy_password" ]; then
-            echo "CONAN_HTTPS_PROXY_URL, CONAN_HTTPS_PROXY_USERNAME, and CONAN_HTTPS_PROXY_PASSWORD secrets are required for Conan upload" >&2
+
+          ndk_path="$android_home/ndk/$ANDROID_NDK_VERSION"
+          if [ ! -d "$ndk_path" ]; then
+            yes | "$sdkmanager" --licenses >/dev/null || true
+            "$sdkmanager" "ndk;$ANDROID_NDK_VERSION"
+          fi
+
+          echo "ANDROID_HOME=$android_home" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ndk_path" >> "$GITHUB_ENV"
+
+      - name: Configure Conan profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CONAN_HOME="$PWD/.conan2"
+          conan profile detect --force
+
+      - name: Conan create
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CONAN_HOME="$PWD/.conan2"
+          mkdir -p profiles
+          cat > profiles/android-arm64 <<EOF
+          [settings]
+          os=Android
+          os.api_level=23
+          arch=armv8
+          compiler=clang
+          compiler.version=19
+          compiler.libcxx=c++_static
+          compiler.cppstd=20
+          build_type=Release
+
+          [conf]
+          tools.android:ndk_path=$ANDROID_NDK_HOME
+          EOF
+          conan create . --build=missing -pr:b default -pr:h profiles/android-arm64 -nr
+
+      - name: Upload Conan package
+        shell: bash
+        env:
+          CONAN_REMOTE_URL: ${{ secrets.CONAN_REMOTE_URL }}
+          CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+          CONAN_HTTPS_PROXY_URL: ${{ secrets.CONAN_HTTPS_PROXY_URL }}
+          CONAN_HTTPS_PROXY_USERNAME: ${{ secrets.CONAN_HTTPS_PROXY_USERNAME }}
+          CONAN_HTTPS_PROXY_PASSWORD: ${{ secrets.CONAN_HTTPS_PROXY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          export CONAN_HOME="$PWD/.conan2"
+          bash tools/ci_upload_conan.sh
+
+  macos:
+    name: macOS arm64 static package
+    runs-on: macos-15
+    steps:
+      - name: Configure Git line endings
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip conan cmake
+          c++ --version
+          cmake --version
+          conan --version
+
+      - name: Configure Conan profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CONAN_HOME="$PWD/.conan2"
+          conan profile detect --force
+
+      - name: CMake smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CONAN_HOME="$PWD/.conan2"
+          cmake -S . -B build \
+            -DMMKV_C_BUILD_TESTS=ON \
+            -DMMKV_C_FORCE_POSIX=ON \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure
+
+      - name: Conan create
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CONAN_HOME="$PWD/.conan2"
+          conan create . --build=missing -s build_type=Release -nr
+
+      - name: Upload Conan package
+        shell: bash
+        env:
+          CONAN_REMOTE_URL: ${{ secrets.CONAN_REMOTE_URL }}
+          CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+          CONAN_HTTPS_PROXY_URL: ${{ secrets.CONAN_HTTPS_PROXY_URL }}
+          CONAN_HTTPS_PROXY_USERNAME: ${{ secrets.CONAN_HTTPS_PROXY_USERNAME }}
+          CONAN_HTTPS_PROXY_PASSWORD: ${{ secrets.CONAN_HTTPS_PROXY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          export CONAN_HOME="$PWD/.conan2"
+          bash tools/ci_upload_conan.sh
+
+  ios:
+    name: iOS arm64 static package
+    runs-on: macos-15
+    steps:
+      - name: Configure Git line endings
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip conan cmake
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          cmake --version
+          conan --version
+
+      - name: Configure Conan profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CONAN_HOME="$PWD/.conan2"
+          conan profile detect --force
+
+      - name: Conan create
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CONAN_HOME="$PWD/.conan2"
+          compiler_version="$(awk -F= '/^compiler.version=/{ print $2; exit }' "$CONAN_HOME/profiles/default")"
+          if [ -z "$compiler_version" ]; then
+            echo "Unable to read apple-clang version from Conan profile" >&2
             exit 1
           fi
 
-          proxy_with_auth="$(python - <<'PY'
-          import os
-          from urllib.parse import quote, urlsplit, urlunsplit
+          ios_sdk_path="$(xcrun --sdk iphoneos --show-sdk-path)"
+          mkdir -p profiles
+          cat > profiles/ios-arm64 <<EOF
+          [settings]
+          os=iOS
+          os.version=13.0
+          os.sdk=iphoneos
+          arch=armv8
+          compiler=apple-clang
+          compiler.version=$compiler_version
+          compiler.libcxx=libc++
+          compiler.cppstd=20
+          build_type=Release
 
-          proxy_url = os.environ["CONAN_HTTPS_PROXY_URL"]
-          username = quote(os.environ["CONAN_HTTPS_PROXY_USERNAME"], safe="")
-          password = quote(os.environ["CONAN_HTTPS_PROXY_PASSWORD"], safe="")
-          parts = urlsplit(proxy_url)
-          if not parts.scheme or not parts.hostname:
-              raise SystemExit("CONAN_HTTPS_PROXY_URL must include scheme and host")
-          host = parts.hostname
-          if ":" in host and not host.startswith("["):
-              host = f"[{host}]"
-          port = f":{parts.port}" if parts.port else ""
-          netloc = f"{username}:{password}@{host}{port}"
-          print(urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment)))
-          PY
-          )"
-          echo "::add-mask::$proxy_with_auth"
-          export HTTPS_PROXY="$proxy_with_auth"
-          export https_proxy="$proxy_with_auth"
+          [conf]
+          tools.apple:sdk_path=$ios_sdk_path
+          EOF
+          conan create . --build=missing -pr:b default -pr:h profiles/ios-arm64 -nr
 
-          conan remote add "$remote_name" "$remote_url" -f
-          conan remote login "$remote_name" "$username" -p "$password"
-          conan upload "${MMKV_C_REFERENCE}:*" -r "$remote_name" --check -c
+      - name: Upload Conan package
+        shell: bash
+        env:
+          CONAN_REMOTE_URL: ${{ secrets.CONAN_REMOTE_URL }}
+          CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+          CONAN_HTTPS_PROXY_URL: ${{ secrets.CONAN_HTTPS_PROXY_URL }}
+          CONAN_HTTPS_PROXY_USERNAME: ${{ secrets.CONAN_HTTPS_PROXY_USERNAME }}
+          CONAN_HTTPS_PROXY_PASSWORD: ${{ secrets.CONAN_HTTPS_PROXY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          export CONAN_HOME="$PWD/.conan2"
+          bash tools/ci_upload_conan.sh
 
   windows:
     name: Windows static package
     runs-on: windows-latest
     steps:
+      - name: Configure Git line endings
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -169,14 +388,12 @@ jobs:
       - name: Upload Conan package
         shell: pwsh
         env:
-          CONAN_REMOTE_NAME: private
           CONAN_REMOTE_URL: ${{ secrets.CONAN_REMOTE_URL }}
           CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
           CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
           CONAN_HTTPS_PROXY_URL: ${{ secrets.CONAN_HTTPS_PROXY_URL }}
           CONAN_HTTPS_PROXY_USERNAME: ${{ secrets.CONAN_HTTPS_PROXY_USERNAME }}
           CONAN_HTTPS_PROXY_PASSWORD: ${{ secrets.CONAN_HTTPS_PROXY_PASSWORD }}
-          MMKV_C_REFERENCE: mmkv_c/2.4.0
         run: |
           $ErrorActionPreference = "Stop"
           $env:CONAN_HOME = Join-Path (Get-Location) ".conan2"
