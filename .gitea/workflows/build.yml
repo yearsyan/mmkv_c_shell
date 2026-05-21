@@ -23,18 +23,84 @@ jobs:
           git submodule sync -- MMKV
           git submodule update --init MMKV
 
+      - name: Install toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ensure_apt_packages() {
+            missing=()
+            for cmd in "$@"; do
+              if ! command -v "$cmd" >/dev/null 2>&1; then
+                missing+=("$cmd")
+              fi
+            done
+            if [ "${#missing[@]}" -eq 0 ]; then
+              return
+            fi
+
+            packages=()
+            for cmd in "${missing[@]}"; do
+              case "$cmd" in
+                cmake) packages+=("cmake") ;;
+                c++) packages+=("g++") ;;
+                make) packages+=("make") ;;
+                python3) packages+=("python3") ;;
+                pip3) packages+=("python3-pip") ;;
+              esac
+            done
+
+            if command -v sudo >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo apt-get install -y "${packages[@]}"
+            else
+              apt-get update
+              apt-get install -y "${packages[@]}"
+            fi
+          }
+
+          ensure_apt_packages cmake c++ make python3 pip3
+
+          venv_probe="${RUNNER_TEMP:-/tmp}/mmkv-venv-probe"
+          rm -rf "$venv_probe"
+          if ! python3 -m venv "$venv_probe" >/dev/null 2>&1; then
+            python_venv_package="$(python3 -c 'import sys; print(f"python{sys.version_info.major}.{sys.version_info.minor}-venv")')"
+            if command -v sudo >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo apt-get install -y python3-venv "$python_venv_package"
+            else
+              apt-get update
+              apt-get install -y python3-venv "$python_venv_package"
+            fi
+          fi
+          rm -rf "$venv_probe"
+
+          python_venv="$HOME/.cache/mmkv-ci/python"
+          rm -rf "$python_venv"
+          python3 -m venv "$python_venv"
+          "$python_venv/bin/python" -m pip install --upgrade pip conan
+          echo "$python_venv/bin" >> "$GITHUB_PATH"
+          export PATH="$python_venv/bin:$PATH"
+
+          c++ --version
+          cmake --version
+          conan --version
+
       - name: Tool versions
         run: |
+          export PATH="$HOME/.cache/mmkv-ci/python/bin:$PATH"
           cmake --version
           conan --version
 
       - name: Configure Conan profile
         run: |
+          export PATH="$HOME/.cache/mmkv-ci/python/bin:$PATH"
           export CONAN_HOME="$PWD/.conan2"
           conan profile detect --force
 
       - name: CMake smoke tests
         run: |
+          export PATH="$HOME/.cache/mmkv-ci/python/bin:$PATH"
           export CONAN_HOME="$PWD/.conan2"
           rm -rf build
           cmake -S . -B build \
@@ -46,6 +112,7 @@ jobs:
 
       - name: Conan create
         run: |
+          export PATH="$HOME/.cache/mmkv-ci/python/bin:$PATH"
           export CONAN_HOME="$PWD/.conan2"
           conan create . --build=missing -s build_type=Release
 
@@ -54,8 +121,9 @@ jobs:
     runs-on: windows
     steps:
       - name: Checkout
-        shell: powershell
+        shell: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ([System.IO.File]::ReadAllText('{0}')); if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }"
         run: |
+          $ErrorActionPreference = "Stop"
           git init .
           git remote add origin "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY.git"
           git -c http.extraheader="AUTHORIZATION: token ${{ github.token }}" fetch --depth=1 origin "$env:GITHUB_SHA"
@@ -63,21 +131,57 @@ jobs:
           git submodule sync -- MMKV
           git submodule update --init MMKV
 
+      - name: Install toolchain
+        shell: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ([System.IO.File]::ReadAllText('{0}')); if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }"
+        run: |
+          $ErrorActionPreference = "Stop"
+          $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+
+          if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            $tempDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
+            $installer = Join-Path $tempDir "python-3.11-installer.exe"
+            Invoke-WebRequest -UseBasicParsing -Uri "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" -OutFile $installer
+            & $installer /quiet InstallAllUsers=0 PrependPath=1 Include_test=0
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $pythonRoot = Join-Path $env:LOCALAPPDATA "Programs\Python\Python311"
+            $pythonScripts = Join-Path $pythonRoot "Scripts"
+            [System.IO.File]::AppendAllText($env:GITHUB_PATH, "$pythonRoot`n", $utf8NoBom)
+            [System.IO.File]::AppendAllText($env:GITHUB_PATH, "$pythonScripts`n", $utf8NoBom)
+            $env:PATH = "$pythonRoot;$pythonScripts;$env:PATH"
+          }
+
+          $pythonCommand = Get-Command python
+          $pythonRoot = Split-Path $pythonCommand.Source
+          $pythonScripts = Join-Path $pythonRoot "Scripts"
+          $userScripts = python -c "import os, site; print(os.path.join(site.USER_BASE, 'Scripts'))"
+          [System.IO.File]::AppendAllText($env:GITHUB_PATH, "$pythonRoot`n", $utf8NoBom)
+          [System.IO.File]::AppendAllText($env:GITHUB_PATH, "$pythonScripts`n", $utf8NoBom)
+          [System.IO.File]::AppendAllText($env:GITHUB_PATH, "$userScripts`n", $utf8NoBom)
+          $env:PATH = "$pythonRoot;$pythonScripts;$userScripts;$env:PATH"
+
+          python --version
+          python -m pip install --user --upgrade pip conan cmake
+          cmake --version
+          conan --version
+
       - name: Tool versions
-        shell: powershell
+        shell: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ([System.IO.File]::ReadAllText('{0}')); if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }"
         run: |
           cmake --version
           conan --version
 
       - name: Configure Conan profile
-        shell: powershell
+        shell: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ([System.IO.File]::ReadAllText('{0}')); if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }"
         run: |
+          $ErrorActionPreference = "Stop"
           $env:CONAN_HOME = Join-Path (Get-Location) ".conan2"
           conan profile detect --force
 
       - name: CMake smoke tests
-        shell: powershell
+        shell: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ([System.IO.File]::ReadAllText('{0}')); if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }"
         run: |
+          $ErrorActionPreference = "Stop"
           $env:CONAN_HOME = Join-Path (Get-Location) ".conan2"
           if (Test-Path build) {
             Remove-Item -Recurse -Force build
@@ -91,7 +195,8 @@ jobs:
           ctest --test-dir build -C Release --output-on-failure
 
       - name: Conan create
-        shell: powershell
+        shell: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ([System.IO.File]::ReadAllText('{0}')); if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }"
         run: |
+          $ErrorActionPreference = "Stop"
           $env:CONAN_HOME = Join-Path (Get-Location) ".conan2"
           conan create . --build=missing -s build_type=Release
