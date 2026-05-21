@@ -1,5 +1,8 @@
+import os
+
 from conan import ConanFile
 from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
+from conan.tools.files import copy
 
 
 class MmkvCConan(ConanFile):
@@ -19,20 +22,26 @@ class MmkvCConan(ConanFile):
         "force_posix": True,
         "build_tests": False,
     }
-    exports_sources = (
-        "CMakeLists.txt",
-        "include/*",
-        "src/*",
-        "tests/*",
-        "MMKV/Core/CMakeLists.txt",
-        "MMKV/Core/*.cpp",
-        "MMKV/Core/*.h",
-        "MMKV/Core/*.hpp",
-        "MMKV/Core/aes/*",
-        "MMKV/Core/crc32/*",
-        "MMKV/LICENSE.TXT",
-    )
     package_type = "static-library"
+
+    def export_sources(self):
+        copy(self, "CMakeLists.txt", self.recipe_folder, self.export_sources_folder)
+        copy(self, "*", os.path.join(self.recipe_folder, "include"), os.path.join(self.export_sources_folder, "include"))
+        copy(self, "*", os.path.join(self.recipe_folder, "src"), os.path.join(self.export_sources_folder, "src"))
+        copy(self, "*", os.path.join(self.recipe_folder, "tests"), os.path.join(self.export_sources_folder, "tests"))
+
+        mmkv_folder = os.path.join(self.recipe_folder, "MMKV")
+        mmkv_export_folder = os.path.join(self.export_sources_folder, "MMKV")
+        copy(self, "LICENSE.TXT", mmkv_folder, mmkv_export_folder)
+
+        core_folder = os.path.join(mmkv_folder, "Core")
+        core_export_folder = os.path.join(mmkv_export_folder, "Core")
+        copy(self, "CMakeLists.txt", core_folder, core_export_folder)
+        for filename in sorted(os.listdir(core_folder)):
+            if filename.endswith((".cpp", ".h", ".hpp")):
+                copy(self, filename, core_folder, core_export_folder, keep_path=False)
+        copy(self, "*", os.path.join(core_folder, "aes"), os.path.join(core_export_folder, "aes"))
+        copy(self, "*", os.path.join(core_folder, "crc32"), os.path.join(core_export_folder, "crc32"))
 
     def config_options(self):
         if self.settings.os == "Windows":
