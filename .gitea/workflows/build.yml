@@ -88,7 +88,7 @@ jobs:
 
       - name: Upload Conan package
         env:
-          CONAN_REMOTE_NAME: temp-conan
+          CONAN_REMOTE_NAME: private
           CONAN_REMOTE_URL: ${{ secrets.CONAN_REMOTE_URL }}
           CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
           CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
@@ -107,21 +107,22 @@ jobs:
             exit 0
           fi
 
-          remote_name="${CONAN_REMOTE_NAME:-temp-conan}"
-          remote_url="${CONAN_REMOTE_URL:-http://192.168.9.138:9300}"
+          remote_name="${CONAN_REMOTE_NAME:-private}"
+          remote_url="${CONAN_REMOTE_URL:-}"
           username="${CONAN_USERNAME:-}"
           password="${CONAN_PASSWORD:-}"
 
-          conan remote add "$remote_name" "$remote_url" -f
-          if [ -n "$username" ] || [ -n "$password" ]; then
-            if [ -z "$username" ] || [ -z "$password" ]; then
-              echo "Both CONAN_USERNAME and CONAN_PASSWORD are required when enabling Conan remote auth" >&2
-              exit 1
-            fi
-            conan remote login "$remote_name" "$username" -p "$password"
-          else
-            echo "No Conan credentials configured; uploading anonymously to $remote_url"
+          if [ -z "$remote_url" ]; then
+            echo "CONAN_REMOTE_URL secret is required for Conan upload" >&2
+            exit 1
           fi
+          if [ -z "$username" ] || [ -z "$password" ]; then
+            echo "CONAN_USERNAME and CONAN_PASSWORD secrets are required for Conan upload" >&2
+            exit 1
+          fi
+
+          conan remote add "$remote_name" "$remote_url" -f
+          conan remote login "$remote_name" "$username" -p "$password"
           conan upload "${MMKV_C_REFERENCE}:*" -r "$remote_name" --check -c
 
   windows:
@@ -212,7 +213,7 @@ jobs:
       - name: Upload Conan package
         shell: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ([System.IO.File]::ReadAllText('{0}')); if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }"
         env:
-          CONAN_REMOTE_NAME: temp-conan
+          CONAN_REMOTE_NAME: private
           CONAN_REMOTE_URL: ${{ secrets.CONAN_REMOTE_URL }}
           CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
           CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
@@ -232,18 +233,18 @@ jobs:
             exit 0
           }
 
-          $remoteName = if ($env:CONAN_REMOTE_NAME) { $env:CONAN_REMOTE_NAME } else { "temp-conan" }
-          $remoteUrl = if ($env:CONAN_REMOTE_URL) { $env:CONAN_REMOTE_URL } else { "http://192.168.9.138:9300" }
+          $remoteName = if ($env:CONAN_REMOTE_NAME) { $env:CONAN_REMOTE_NAME } else { "private" }
+          $remoteUrl = $env:CONAN_REMOTE_URL
           $username = $env:CONAN_USERNAME
           $password = $env:CONAN_PASSWORD
 
-          conan remote add $remoteName $remoteUrl -f
-          if ($username -or $password) {
-            if (-not $username -or -not $password) {
-              throw "Both CONAN_USERNAME and CONAN_PASSWORD are required when enabling Conan remote auth"
-            }
-            conan remote login $remoteName $username -p $password
-          } else {
-            Write-Host "No Conan credentials configured; uploading anonymously to $remoteUrl"
+          if (-not $remoteUrl) {
+            throw "CONAN_REMOTE_URL secret is required for Conan upload"
           }
+          if (-not $username -or -not $password) {
+            throw "CONAN_USERNAME and CONAN_PASSWORD secrets are required for Conan upload"
+          }
+
+          conan remote add $remoteName $remoteUrl -f
+          conan remote login $remoteName $username -p $password
           conan upload "$($env:MMKV_C_REFERENCE):*" -r $remoteName --check -c

@@ -1,0 +1,169 @@
+name: Build mmkv_c
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    name: Linux static package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip conan cmake
+          c++ --version
+          cmake --version
+          conan --version
+
+      - name: Configure Conan profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CONAN_HOME="$PWD/.conan2"
+          conan profile detect --force
+
+      - name: CMake smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CONAN_HOME="$PWD/.conan2"
+          cmake -S . -B build \
+            -DMMKV_C_BUILD_TESTS=ON \
+            -DMMKV_C_FORCE_POSIX=ON \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure
+
+      - name: Conan create
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CONAN_HOME="$PWD/.conan2"
+          conan create . --build=missing -s build_type=Release -nr
+
+      - name: Upload Conan package
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          CONAN_REMOTE_NAME: private
+          CONAN_REMOTE_URL: ${{ secrets.CONAN_REMOTE_URL }}
+          CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+          MMKV_C_REFERENCE: mmkv_c/2.4.0
+        run: |
+          set -euo pipefail
+          export CONAN_HOME="$PWD/.conan2"
+
+          remote_name="${CONAN_REMOTE_NAME:-private}"
+          remote_url="${CONAN_REMOTE_URL:-}"
+          username="${CONAN_USERNAME:-}"
+          password="${CONAN_PASSWORD:-}"
+
+          if [ -z "$remote_url" ]; then
+            echo "CONAN_REMOTE_URL secret is required for Conan upload" >&2
+            exit 1
+          fi
+          if [ -z "$username" ] || [ -z "$password" ]; then
+            echo "CONAN_USERNAME and CONAN_PASSWORD secrets are required for Conan upload" >&2
+            exit 1
+          fi
+
+          conan remote add "$remote_name" "$remote_url" -f
+          conan remote login "$remote_name" "$username" -p "$password"
+          conan upload "${MMKV_C_REFERENCE}:*" -r "$remote_name" --check -c
+
+  windows:
+    name: Windows static package
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install toolchain
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python -m pip install --upgrade pip conan cmake
+          cmake --version
+          conan --version
+
+      - name: Configure Conan profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:CONAN_HOME = Join-Path (Get-Location) ".conan2"
+          conan profile detect --force
+
+      - name: CMake smoke tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:CONAN_HOME = Join-Path (Get-Location) ".conan2"
+          cmake -S . -B build `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DMMKV_C_BUILD_TESTS=ON `
+            -DMMKV_C_FORCE_POSIX=ON
+          cmake --build build --config Release --parallel
+          ctest --test-dir build -C Release --output-on-failure
+
+      - name: Conan create
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:CONAN_HOME = Join-Path (Get-Location) ".conan2"
+          conan create . --build=missing -s build_type=Release -nr
+
+      - name: Upload Conan package
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          CONAN_REMOTE_NAME: private
+          CONAN_REMOTE_URL: ${{ secrets.CONAN_REMOTE_URL }}
+          CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+          MMKV_C_REFERENCE: mmkv_c/2.4.0
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:CONAN_HOME = Join-Path (Get-Location) ".conan2"
+
+          $remoteName = if ($env:CONAN_REMOTE_NAME) { $env:CONAN_REMOTE_NAME } else { "private" }
+          $remoteUrl = $env:CONAN_REMOTE_URL
+          $username = $env:CONAN_USERNAME
+          $password = $env:CONAN_PASSWORD
+
+          if (-not $remoteUrl) {
+            throw "CONAN_REMOTE_URL secret is required for Conan upload"
+          }
+          if (-not $username -or -not $password) {
+            throw "CONAN_USERNAME and CONAN_PASSWORD secrets are required for Conan upload"
+          }
+
+          conan remote add $remoteName $remoteUrl -f
+          conan remote login $remoteName $username -p $password
+          conan upload "$($env:MMKV_C_REFERENCE):*" -r $remoteName --check -c

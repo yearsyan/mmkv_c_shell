@@ -57,11 +57,6 @@ python3 tools/conan_test_server.py \
   --storage .conan-test-server/storage
 ```
 
-The current local LAN addresses include `192.168.9.138` and `192.168.9.118`;
-the workflow defaults to `http://192.168.9.138:9300`. If the Gitea runner
-reaches this machine through a different address, set the repository secret
-`CONAN_REMOTE_URL` to that URL.
-
 Publish this package from the checkout:
 
 ```bash
@@ -84,41 +79,40 @@ CONAN_TEST_SERVER_PASSWORD=<password> \
 python3 tools/conan_test_server.py --host 0.0.0.0 --port 9300
 ```
 
-When auth is enabled, set Gitea repository secrets `CONAN_USERNAME` and
-`CONAN_PASSWORD`. With no password configured on the server, uploads are
-anonymous inside the LAN.
-
-The Gitea workflow uploads only for `workflow_dispatch` and `v*` tags. Both
-Linux and Windows jobs publish to `temp-conan` after `conan create`.
+With no password configured on the server, uploads are anonymous inside the LAN.
+This temporary server is only for local/LAN validation; CI publishing uses the
+private remote configured through repository secrets.
 
 The server stores all data below `.conan-test-server/storage`; remove that
 directory to reset the temporary remote. S3 credentials are available in the
 Godot pannel local config if a future storage backend needs them, but this
 test server deliberately does not read or commit those credentials.
 
-Gitea package registry example:
+Private Conan remote example:
 
 ```bash
-conan remote add neuyan https://git.neuyan.com/api/packages/yearsyan/conan
-conan remote login neuyan yearsyan -p <personal-access-token>
-conan upload "mmkv_c/2.4.0:*" -r neuyan --check -c
+conan remote add private https://conan.example.internal -f
+conan remote login private <user> -p <password-or-token>
+conan upload "mmkv_c/2.4.0:*" -r private --check -c
 ```
 
-The Gitea workflow builds on every push and pull request. Upload is intentionally
-gated: it runs only for `workflow_dispatch` or `v*` tags. By default it now
-publishes to the temporary LAN remote above; override that with the
-`CONAN_REMOTE_URL` repository secret for Gitea Package Registry, Artifactory, or
-another internal Conan remote. If the remote requires credentials, add:
+The Gitea and GitHub workflows build on every push and pull request. Upload is
+intentionally gated: it runs only for `workflow_dispatch` or `v*` tags. Uploads
+require these repository secrets:
 
-- `CONAN_USERNAME`: Gitea username or service account.
-- `CONAN_PASSWORD`: personal access token or registry password.
+- `CONAN_REMOTE_URL`: private Conan remote URL, for example your internal
+  `https://...` endpoint.
+- `CONAN_USERNAME`: Conan username or service account.
+- `CONAN_PASSWORD`: Conan password or personal access token.
+
+The private remote URL is intentionally not hard-coded in either workflow.
 
 For the Godot/SCons engine module, the current integration pattern is:
 
 ```bash
-conan remote add neuyan https://git.neuyan.com/api/packages/yearsyan/conan
-conan remote login neuyan yearsyan -p <personal-access-token>
-GODOT_MMKV_CONAN_REMOTE=neuyan scons platform=<platform> target=<target> arch=<arch>
+conan remote add private <CONAN_REMOTE_URL> -f
+conan remote login private <user> -p <password-or-token>
+GODOT_MMKV_CONAN_REMOTE=private scons platform=<platform> target=<target> arch=<arch>
 ```
 
 For local development against this checkout instead of the remote package:
