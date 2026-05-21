@@ -37,11 +37,7 @@ class MmkvCConan(ConanFile):
 
     def config_options(self):
         if self.settings.os == "Windows":
-            del self.options.fPIC
-
-    def configure(self):
-        if self.settings.os == "Windows" and hasattr(self.options, "fPIC"):
-            del self.options.fPIC
+            self.options.rm_safe("fPIC")
 
     def layout(self):
         cmake_layout(self)
@@ -53,8 +49,9 @@ class MmkvCConan(ConanFile):
         tc = CMakeToolchain(self)
         tc.variables["MMKV_C_FORCE_POSIX"] = bool(self.options.force_posix)
         tc.variables["MMKV_C_BUILD_TESTS"] = bool(self.options.build_tests)
-        if hasattr(self.options, "fPIC"):
-            tc.variables["CMAKE_POSITION_INDEPENDENT_CODE"] = bool(self.options.fPIC)
+        fpic = self.options.get_safe("fPIC")
+        if fpic is not None:
+            tc.variables["CMAKE_POSITION_INDEPENDENT_CODE"] = bool(fpic)
         tc.generate()
 
     def build(self):
