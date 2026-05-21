@@ -1,5 +1,9 @@
 build/
 cmake-build-*/
 .cache/
+__pycache__/
 CMakeUserPresets.json
 .codex-local/
+.conan2-android/
+.conan2-temp/
+.conan-test-server/

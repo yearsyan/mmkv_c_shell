@@ -84,7 +84,45 @@ jobs:
         run: |
           export PATH="$HOME/.cache/mmkv-ci/python/bin:$PATH"
           export CONAN_HOME="$PWD/.conan2"
-          conan create . --build=missing -s build_type=Release
+          conan create . --build=missing -s build_type=Release -nr
+
+      - name: Upload Conan package
+        env:
+          CONAN_REMOTE_NAME: temp-conan
+          CONAN_REMOTE_URL: ${{ secrets.CONAN_REMOTE_URL }}
+          CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+          MMKV_C_REFERENCE: mmkv_c/2.4.0
+        run: |
+          export PATH="$HOME/.cache/mmkv-ci/python/bin:$PATH"
+          export CONAN_HOME="$PWD/.conan2"
+
+          should_upload=no
+          case "${GITHUB_EVENT_NAME:-}" in
+            workflow_dispatch) should_upload=yes ;;
+            *) case "${GITHUB_REF:-}" in refs/tags/v*) should_upload=yes ;; esac ;;
+          esac
+          if [ "$should_upload" != "yes" ]; then
+            echo "Skipping Conan upload for ${GITHUB_EVENT_NAME:-unknown} ${GITHUB_REF:-unknown}"
+            exit 0
+          fi
+
+          remote_name="${CONAN_REMOTE_NAME:-temp-conan}"
+          remote_url="${CONAN_REMOTE_URL:-http://192.168.9.138:9300}"
+          username="${CONAN_USERNAME:-}"
+          password="${CONAN_PASSWORD:-}"
+
+          conan remote add "$remote_name" "$remote_url" -f
+          if [ -n "$username" ] || [ -n "$password" ]; then
+            if [ -z "$username" ] || [ -z "$password" ]; then
+              echo "Both CONAN_USERNAME and CONAN_PASSWORD are required when enabling Conan remote auth" >&2
+              exit 1
+            fi
+            conan remote login "$remote_name" "$username" -p "$password"
+          else
+            echo "No Conan credentials configured; uploading anonymously to $remote_url"
+          fi
+          conan upload "${MMKV_C_REFERENCE}:*" -r "$remote_name" --check -c
 
   windows:
     name: Windows static package
@@ -169,4 +207,43 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $env:CONAN_HOME = Join-Path (Get-Location) ".conan2"
-          conan create . --build=missing -s build_type=Release
+          conan create . --build=missing -s build_type=Release -nr
+
+      - name: Upload Conan package
+        shell: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ([System.IO.File]::ReadAllText('{0}')); if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }"
+        env:
+          CONAN_REMOTE_NAME: temp-conan
+          CONAN_REMOTE_URL: ${{ secrets.CONAN_REMOTE_URL }}
+          CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+          MMKV_C_REFERENCE: mmkv_c/2.4.0
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:CONAN_HOME = Join-Path (Get-Location) ".conan2"
+
+          $shouldUpload = $false
+          if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch") {
+            $shouldUpload = $true
+          } elseif ($env:GITHUB_REF -like "refs/tags/v*") {
+            $shouldUpload = $true
+          }
+          if (-not $shouldUpload) {
+            Write-Host "Skipping Conan upload for $env:GITHUB_EVENT_NAME $env:GITHUB_REF"
+            exit 0
+          }
+
+          $remoteName = if ($env:CONAN_REMOTE_NAME) { $env:CONAN_REMOTE_NAME } else { "temp-conan" }
+          $remoteUrl = if ($env:CONAN_REMOTE_URL) { $env:CONAN_REMOTE_URL } else { "http://192.168.9.138:9300" }
+          $username = $env:CONAN_USERNAME
+          $password = $env:CONAN_PASSWORD
+
+          conan remote add $remoteName $remoteUrl -f
+          if ($username -or $password) {
+            if (-not $username -or -not $password) {
+              throw "Both CONAN_USERNAME and CONAN_PASSWORD are required when enabling Conan remote auth"
+            }
+            conan remote login $remoteName $username -p $password
+          } else {
+            Write-Host "No Conan credentials configured; uploading anonymously to $remoteUrl"
+          }
+          conan upload "$($env:MMKV_C_REFERENCE):*" -r $remoteName --check -c
