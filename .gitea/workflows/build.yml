@@ -1,0 +1,88 @@
+name: Build mmkv_c
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    name: Linux static package
+    runs-on: linux
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Tool versions
+        run: |
+          cmake --version
+          conan --version
+
+      - name: Configure Conan profile
+        run: |
+          export CONAN_HOME="$PWD/.conan2"
+          conan profile detect --force
+
+      - name: CMake smoke tests
+        run: |
+          export CONAN_HOME="$PWD/.conan2"
+          rm -rf build
+          cmake -S . -B build \
+            -DMMKV_C_BUILD_TESTS=ON \
+            -DMMKV_C_FORCE_POSIX=ON \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure
+
+      - name: Conan create
+        run: |
+          export CONAN_HOME="$PWD/.conan2"
+          conan create . --build=missing -s build_type=Release
+
+  windows:
+    name: Windows static package
+    runs-on: windows
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Tool versions
+        shell: pwsh
+        run: |
+          cmake --version
+          conan --version
+
+      - name: Configure Conan profile
+        shell: pwsh
+        run: |
+          $env:CONAN_HOME = Join-Path (Get-Location) ".conan2"
+          conan profile detect --force
+
+      - name: CMake smoke tests
+        shell: pwsh
+        run: |
+          $env:CONAN_HOME = Join-Path (Get-Location) ".conan2"
+          if (Test-Path build) {
+            Remove-Item -Recurse -Force build
+          }
+          cmake -S . -B build `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DMMKV_C_BUILD_TESTS=ON `
+            -DMMKV_C_FORCE_POSIX=ON
+          cmake --build build --config Release --parallel
+          ctest --test-dir build -C Release --output-on-failure
+
+      - name: Conan create
+        shell: pwsh
+        run: |
+          $env:CONAN_HOME = Join-Path (Get-Location) ".conan2"
+          conan create . --build=missing -s build_type=Release
